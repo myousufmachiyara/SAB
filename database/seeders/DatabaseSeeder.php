@@ -42,9 +42,6 @@ class DatabaseSeeder extends Seeder
         $admin->assignRole($superAdmin);
 
 
-        $adminRole = Role::firstOrCreate(['name' => 'admin']);
-        $yousuf->assignRole($adminRole);
-
         // 📌 Functional Modules (CRUD-style permissions)
         $modules = [
             // User Management
