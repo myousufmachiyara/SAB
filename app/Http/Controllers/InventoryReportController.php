@@ -15,7 +15,7 @@ class InventoryReportController extends Controller
         $from    = $request->get('from_date', date('Y-m-01'));
         $to      = $request->get('to_date', date('Y-m-d'));
 
-        $products    = Product::with('variations')->orderBy('name')->get();
+        $products    = Product::orderBy('name')->get();
         $itemLedger  = collect();
         $openingQty  = 0;
         $stockInHand = collect();
@@ -113,6 +113,9 @@ class InventoryReportController extends Controller
                 ->map(fn($row) => (array) $row);
         }
 
+        // ================================================================
+        // TAB 2 — STOCK IN HAND
+        // ================================================================
         if ($tab === 'SR') {
             $costingMethod = $request->get('costing_method', 'avg');
             $query = Product::query();
@@ -138,14 +141,12 @@ class InventoryReportController extends Controller
                     ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
                     ->where('purchase_return_items.item_id', $product->id)
                     ->where('purchase_returns.return_date', '<=', $to)
-                    ->whereNull('purchase_returns.deleted_at')
                     ->sum('purchase_return_items.quantity');
 
                 $tSaleReturn = DB::table('sale_return_items')
                     ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
                     ->where('sale_return_items.product_id', $product->id)
                     ->where('sale_returns.return_date', '<=', $to)
-                    ->whereNull('sale_returns.deleted_at')
                     ->sum('sale_return_items.qty');
 
                 $qty = $tIn - $tOut - $tPurchaseReturn + $tSaleReturn;
