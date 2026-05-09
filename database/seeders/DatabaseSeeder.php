@@ -60,6 +60,7 @@ class DatabaseSeeder extends Seeder
 
             // Purchases
             'purchase_invoices',
+            'purchase_bilty',
             'purchase_return',
 
             // Sales

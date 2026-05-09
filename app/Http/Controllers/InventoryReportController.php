@@ -113,144 +113,79 @@ class InventoryReportController extends Controller
                 ->map(fn($row) => (array) $row);
         }
 
-        // ================================================================
-        // TAB 2 — STOCK IN HAND
-        //
-        // ROOT CAUSE OF BUG:
-        //   The previous query did INNER JOIN on product_variations.
-        //   A product purchased with variation_id = null has NO rows in
-        //   product_variations, so the inner join returned 0 rows → empty.
-        //
-        // FIX:
-        //   Query at the product level, not the variation level.
-        //   - Products with NO variations: one row, stock = all purchases.
-        //   - Products WITH variations: one row per variation, PLUS a
-        //     catch-all "No Variation" row for any purchases/sales where
-        //     variation_id was left null.
-        // ================================================================
         if ($tab === 'SR') {
+            $costingMethod = $request->get('costing_method', 'avg'); // ensure it's in scope
+            $query = Product::query();
+            if ($itemId) $query->where('id', $itemId);
 
-            $productQuery = Product::with('variations')
-                ->leftJoin('measurement_units', 'measurement_units.id', '=', 'products.measurement_unit')
-                ->select('products.*', 'measurement_units.shortcode as unit_shortcode')
-                ->orderBy('products.name');
+            $stockInHand = $query->orderBy('name')->get()->map(function ($product) use ($costingMethod, $to) {
 
-            if ($itemId) {
-                $productQuery->where('products.id', $itemId);
-            }
+                $tIn = DB::table('purchase_invoice_items')
+                    ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                    ->where('purchase_invoice_items.item_id', $product->id)
+                    ->where('purchase_invoices.invoice_date', '<=', $to)
+                    ->whereNull('purchase_invoices.deleted_at')
+                    ->sum('purchase_invoice_items.quantity');
 
-            $productRows = $productQuery->get();
+                $tOut = DB::table('sale_invoice_items')
+                    ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+                    ->where('sale_invoice_items.product_id', $product->id)
+                    ->where('sale_invoices.date', '<=', $to)
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->sum('sale_invoice_items.quantity');
 
-            foreach ($productRows as $product) {
+                $tCustom = DB::table('sale_item_customization')
+                    ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+                    ->join('sale_invoice_items', 'sale_invoice_items.id', '=', 'sale_item_customization.sale_invoice_items_id')
+                    ->where('sale_item_customization.item_id', $product->id)
+                    ->where('sale_invoices.date', '<=', $to)
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->sum('sale_invoice_items.quantity');
 
-                $hasVariations = $product->variations->isNotEmpty();
+                $tPurchaseReturn = DB::table('purchase_return_items')
+                    ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
+                    ->where('purchase_return_items.item_id', $product->id)
+                    ->where('purchase_returns.return_date', '<=', $to)
+                    ->whereNull('purchase_returns.deleted_at')
+                    ->sum('purchase_return_items.quantity');
 
-                if (!$hasVariations) {
+                $tSaleReturn = DB::table('sale_return_items')
+                    ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
+                    ->where('sale_return_items.product_id', $product->id)
+                    ->where('sale_returns.return_date', '<=', $to)
+                    ->whereNull('sale_returns.deleted_at')
+                    ->sum('sale_return_items.qty');
 
-                    // ── No variations: sum ALL rows for this product ───
-                    $purchased = (float) DB::table('purchase_invoice_items')
-                        ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                        ->where('purchase_invoice_items.item_id', $product->id)
-                        ->whereNull('purchase_invoices.deleted_at')
-                        ->sum('purchase_invoice_items.quantity');
+                $qty = $tIn - $tOut - $tCustom - $tPurchaseReturn + $tSaleReturn;
 
-                    $sold = (float) DB::table('sale_invoice_items')
-                        ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                        ->where('sale_invoice_items.product_id', $product->id)
-                        ->whereNull('sale_invoices.deleted_at')
-                        ->sum('sale_invoice_items.quantity');
+                $priceQuery = DB::table('purchase_invoice_items')
+                    ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                    ->where('purchase_invoice_items.item_id', $product->id)
+                    ->where('purchase_invoices.invoice_date', '<=', $to)
+                    ->whereNull('purchase_invoices.deleted_at');
 
-                    $purchaseReturned = (float) DB::table('purchase_return_items')
-                        ->where('item_id', $product->id)
-                        ->sum('quantity');
+                $purchasePrice = $costingMethod === 'latest'
+                    ? ($priceQuery->latest('purchase_invoices.invoice_date')->value('purchase_invoice_items.price') ?? 0)
+                    : ($priceQuery->avg('purchase_invoice_items.price') ?? 0);
 
-                    $saleReturned = (float) DB::table('sale_return_items')
-                        ->where('product_id', $product->id)
-                        ->sum('qty');
+                $biltyPrice = DB::table('purchase_bilty_details')
+                    ->join('purchase_bilty', 'purchase_bilty_details.bilty_id', '=', 'purchase_bilty.id')
+                    ->where('purchase_bilty_details.item_id', $product->id)
+                    ->where('purchase_bilty.bilty_date', '<=', $to)
+                    ->whereNull('purchase_bilty.deleted_at')
+                    ->avg('purchase_bilty_details.price') ?? 0;
 
-                    $qty = ($purchased + $saleReturned) - ($sold + $purchaseReturned);
+                $unitCost = $purchasePrice + $biltyPrice;
 
-                    if ($qty > 0) {
-                        $stockInHand->push([
-                            'product'   => $product->name,
-                            'variation' => '—',
-                            'quantity'  => $qty,
-                            'unit'      => $product->unit_shortcode ?? '',
-                        ]);
-                    }
-
-                } else {
-
-                    // ── Has variations ─────────────────────────────────
-
-                    // Catch-all row: purchases/sales where variation_id is null
-                    $nullQtyIn = (float) DB::table('purchase_invoice_items')
-                        ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                        ->where('purchase_invoice_items.item_id', $product->id)
-                        ->whereNull('purchase_invoice_items.variation_id')
-                        ->whereNull('purchase_invoices.deleted_at')
-                        ->sum('purchase_invoice_items.quantity');
-
-                    $nullQtyOut = (float) DB::table('sale_invoice_items')
-                        ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                        ->where('sale_invoice_items.product_id', $product->id)
-                        ->whereNull('sale_invoice_items.variation_id')
-                        ->whereNull('sale_invoices.deleted_at')
-                        ->sum('sale_invoice_items.quantity');
-
-                    $nullPR = (float) DB::table('purchase_return_items')
-                        ->where('item_id', $product->id)->whereNull('variation_id')->sum('quantity');
-
-                    $nullSR = (float) DB::table('sale_return_items')
-                        ->where('product_id', $product->id)->whereNull('variation_id')->sum('qty');
-
-                    $nullQty = ($nullQtyIn + $nullSR) - ($nullQtyOut + $nullPR);
-
-                    if ($nullQty > 0) {
-                        $stockInHand->push([
-                            'product'   => $product->name,
-                            'variation' => 'No Variation',
-                            'quantity'  => $nullQty,
-                            'unit'      => $product->unit_shortcode ?? '',
-                        ]);
-                    }
-
-                    // One row per variation
-                    foreach ($product->variations as $v) {
-
-                        $vPurchased = (float) DB::table('purchase_invoice_items')
-                            ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                            ->where('purchase_invoice_items.item_id', $product->id)
-                            ->where('purchase_invoice_items.variation_id', $v->id)
-                            ->whereNull('purchase_invoices.deleted_at')
-                            ->sum('purchase_invoice_items.quantity');
-
-                        $vSold = (float) DB::table('sale_invoice_items')
-                            ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                            ->where('sale_invoice_items.product_id', $product->id)
-                            ->where('sale_invoice_items.variation_id', $v->id)
-                            ->whereNull('sale_invoices.deleted_at')
-                            ->sum('sale_invoice_items.quantity');
-
-                        $vPR = (float) DB::table('purchase_return_items')
-                            ->where('item_id', $product->id)->where('variation_id', $v->id)->sum('quantity');
-
-                        $vSR = (float) DB::table('sale_return_items')
-                            ->where('product_id', $product->id)->where('variation_id', $v->id)->sum('qty');
-
-                        $vQty = ($vPurchased + $vSR) - ($vSold + $vPR);
-
-                        if ($vQty > 0) {
-                            $stockInHand->push([
-                                'product'   => $product->name,
-                                'variation' => $v->sku ?? $v->name ?? '—',
-                                'quantity'  => $vQty,
-                                'unit'      => $product->unit_shortcode ?? '',
-                            ]);
-                        }
-                    }
-                }
-            }
+                return [
+                    'product'        => $product->name,
+                    'quantity'       => $qty,
+                    'purchase_price' => round($purchasePrice, 2),
+                    'bilty_price'    => round($biltyPrice, 2),
+                    'price'          => round($unitCost, 2),
+                    'total'          => round($qty * $unitCost, 2),
+                ];
+            })->filter(fn($row) => $row['quantity'] != 0); // optionally hide zero-stock items
         }
 
         return view('reports.inventory_reports', compact(

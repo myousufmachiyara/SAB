@@ -141,15 +141,16 @@
         </div>
 
         {{-- STOCK IN HAND --}}
-        <div id="SR" class="tab-pane fade {{ $tab === 'SR' ? 'show active' : '' }}">
-            <form method="GET" class="border p-3 bg-light rounded mb-3 no-print">
+        <div id="SR" class="tab-pane fade {{ $tab=='SR'?'show active':'' }}">
+
+            <form method="GET" class="mb-3">
                 <input type="hidden" name="tab" value="SR">
-                <div class="row g-2">
-                    <div class="col-md-5">
-                        <label class="small fw-bold">Product (leave blank for all)</label>
-                        <select name="item_id" class="form-select form-select-sm">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label>Product</label>
+                        <select name="item_id" class="form-control select2-js">
                             <option value="">-- All Products --</option>
-                            @foreach ($products as $product)
+                            @foreach($products as $product)
                                 <option value="{{ $product->id }}"
                                     {{ request('item_id') == $product->id ? 'selected' : '' }}>
                                     {{ $product->name }}
@@ -157,53 +158,87 @@
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <button type="submit" class="btn btn-success btn-sm w-100">
-                            <i class="fas fa-boxes"></i> Show Stock
-                        </button>
+
+                    <div class="col-md-3">
+                        <label>Costing Method</label>
+                        <select name="costing_method" class="form-control">
+                            <option value="avg"    {{ request('costing_method','avg')=='avg'    ? 'selected':'' }}>Average</option>
+                            <option value="latest" {{ request('costing_method','avg')=='latest' ? 'selected':'' }}>Latest</option>
+                        </select>
                     </div>
+
                     <div class="col-md-2 d-flex align-items-end">
-                        <button type="button" class="btn btn-danger btn-sm w-100"
-                                onclick="exportPDF('sr-table', 'Stock In Hand', 'As of {{ now()->format('d-M-Y') }}')">
-                            <i class="fas fa-file-pdf"></i> PDF
-                        </button>
+                        <button class="btn btn-primary w-100">Filter</button>
                     </div>
                 </div>
             </form>
 
-            <div id="sr-table">
-                <table class="table table-sm table-striped table-bordered align-middle">
-                    <thead class="table-dark">
+            @php
+                $grandQty   = $stockInHand->sum('quantity');
+                $grandTotal = $stockInHand->sum('total');
+            @endphp
+
+            @if(auth()->user()->hasRole('superadmin'))
+            <div class="mb-3 text-end">
+                <h4>Total Stock Value: <strong>PKR {{ number_format($grandTotal, 2) }}</strong></h4>
+            </div>
+            @endif
+
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Product</th>
+                        <th>Quantity</th>
+                        @if(auth()->user()->hasRole('superadmin'))
+                            <th>Purchase Rate</th>
+                            <th>Bilty/Unit</th>
+                            <th>Total Rate</th>
+                            <th>Stock Value</th>
+                        @endif
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($stockInHand as $i => $row)
                         <tr>
-                            <th>Product</th><th>Variation (SKU)</th>
-                            <th class="text-end">Current Stock</th><th>Unit</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    @forelse ($stockInHand as $stock)
-                        <tr>
-                            <td><strong>{{ $stock['product'] }}</strong></td>
-                            <td>{{ $stock['variation'] }}</td>
-                            <td class="text-end fw-bold {{ $stock['quantity'] <= 0 ? 'text-danger' : 'text-success' }}">
-                                {{ number_format($stock['quantity'], 2) }}
-                            </td>
-                            <td>{{ $stock['unit'] }}</td>
+                            <td>{{ $i + 1 }}</td>
+                            <td>{{ $row['product'] }}</td>
+                            <td>{{ number_format($row['quantity'], 2) }}</td>
+                            @if(auth()->user()->hasRole('superadmin'))
+                                <td>{{ number_format($row['purchase_price'], 2) }}</td>
+                                <td>
+                                    @if($row['bilty_price'] > 0)
+                                        <span class="text-success">
+                                            + {{ number_format($row['bilty_price'], 2) }}
+                                        </span>
+                                    @else
+                                        <span class="text-muted">—</span>
+                                    @endif
+                                </td>
+                                <td><strong>{{ number_format($row['price'], 2) }}</strong></td>
+                                <td>{{ number_format($row['total'], 2) }}</td>
+                            @endif
                         </tr>
                     @empty
-                        <tr><td colspan="4" class="text-center py-3 text-muted">No stock found. Click "Show Stock" to load.</td></tr>
-                    @endforelse
-                    </tbody>
-                    @if ($stockInHand->isNotEmpty())
-                    <tfoot class="table-light fw-bold">
                         <tr>
-                            <td colspan="2" class="text-end">Total Units In Stock:</td>
-                            <td class="text-end">{{ number_format($stockInHand->sum('quantity'), 2) }}</td>
-                            <td></td>
+                            <td colspan="{{ auth()->user()->hasRole('superadmin') ? 7 : 3 }}"
+                                class="text-center">No stock found</td>
                         </tr>
-                    </tfoot>
-                    @endif
-                </table>
-            </div>
+                    @endforelse
+                </tbody>
+                <tfoot>
+                    <tr class="table-dark">
+                        <th colspan="2" class="text-end">Grand Total</th>
+                        <th>{{ number_format($grandQty, 2) }}</th>
+                        @if(auth()->user()->hasRole('superadmin'))
+                            <th>—</th>
+                            <th>—</th>
+                            <th>—</th>
+                            <th>{{ number_format($grandTotal, 2) }}</th>
+                        @endif
+                    </tr>
+                </tfoot>
+            </table>
         </div>
 
     </div>

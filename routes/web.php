@@ -23,6 +23,7 @@ use App\Http\Controllers\{
     SaleReturnController,
     PermissionController,
     ProductSubcategoryController,
+    PurchaseBiltyController,
 };
 
 Auth::routes();
@@ -42,6 +43,7 @@ Route::middleware(['auth'])->group(function () {
 
     //Purchase Helper
     Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices']);
+    Route::get('/get-purchase-items/{id}', [PurchaseBiltyController::class, 'getInvoiceItems'])->name('purchase_bilty.getItems');
 
     // Common Modules
     $modules = [
@@ -62,6 +64,7 @@ Route::middleware(['auth'])->group(function () {
 
         // Purchases
         'purchase_invoices' => ['controller' => PurchaseInvoiceController::class, 'permission' => 'purchase_invoices'],
+        'purchase_bilty' => ['controller' => PurchaseBiltyController::class, 'permission' => 'purchase_bilty'],
         'purchase_return' => ['controller' => PurchaseReturnController::class, 'permission' => 'purchase_return'],
 
         // Sales
