@@ -114,7 +114,7 @@ class InventoryReportController extends Controller
         }
 
         if ($tab === 'SR') {
-            $costingMethod = $request->get('costing_method', 'avg'); // ensure it's in scope
+            $costingMethod = $request->get('costing_method', 'avg');
             $query = Product::query();
             if ($itemId) $query->where('id', $itemId);
 
@@ -134,14 +134,6 @@ class InventoryReportController extends Controller
                     ->whereNull('sale_invoices.deleted_at')
                     ->sum('sale_invoice_items.quantity');
 
-                $tCustom = DB::table('sale_item_customization')
-                    ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
-                    ->join('sale_invoice_items', 'sale_invoice_items.id', '=', 'sale_item_customization.sale_invoice_items_id')
-                    ->where('sale_item_customization.item_id', $product->id)
-                    ->where('sale_invoices.date', '<=', $to)
-                    ->whereNull('sale_invoices.deleted_at')
-                    ->sum('sale_invoice_items.quantity');
-
                 $tPurchaseReturn = DB::table('purchase_return_items')
                     ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
                     ->where('purchase_return_items.item_id', $product->id)
@@ -156,7 +148,7 @@ class InventoryReportController extends Controller
                     ->whereNull('sale_returns.deleted_at')
                     ->sum('sale_return_items.qty');
 
-                $qty = $tIn - $tOut - $tCustom - $tPurchaseReturn + $tSaleReturn;
+                $qty = $tIn - $tOut - $tPurchaseReturn + $tSaleReturn;
 
                 $priceQuery = DB::table('purchase_invoice_items')
                     ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
@@ -185,7 +177,7 @@ class InventoryReportController extends Controller
                     'price'          => round($unitCost, 2),
                     'total'          => round($qty * $unitCost, 2),
                 ];
-            })->filter(fn($row) => $row['quantity'] != 0); // optionally hide zero-stock items
+            })->filter(fn($row) => $row['quantity'] != 0);
         }
 
         return view('reports.inventory_reports', compact(
