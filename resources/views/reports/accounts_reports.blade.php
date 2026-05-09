@@ -67,7 +67,7 @@
                            value="{{ request('to_date', $to) }}" class="form-control" required>
                 </div>
                 <div class="col-md-4">
-                    <select name="account_id" class="form-control select2">
+                    <select name="account_id" data-plugin-selecttwo class="form-control select2-js">
                         <option value="">-- All Accounts --</option>
                         @foreach ($chartOfAccounts as $coa)
                             <option value="{{ $coa->id }}"
