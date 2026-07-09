@@ -160,7 +160,9 @@ class SaleInvoiceController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function index()
     {
-        $invoices = SaleInvoice::with('items.product', 'account')->latest()->get();
+        $invoices = SaleInvoice::with('items.product', 'account')
+            ->latest('invoice_date') // or 'id', or whatever column represents "latest"
+            ->get();
         return view('sales.index', compact('invoices'));
     }
 

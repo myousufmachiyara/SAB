@@ -23,6 +23,7 @@
             <thead class="thead-dark">
               <tr>
                 <th>#</th>
+                <th>Invoice #</th>
                 <th>Date</th>
                 <th>Account</th>
                 <th>Type</th>
@@ -34,6 +35,7 @@
             @foreach ($invoices as $invoice)
             <tr>
                 <td>{{ $loop->iteration }}</td>
+                <td class="text-primary">{{ $invoice->invoice_no }}</td>
                 <td>{{ $invoice->date }}</td>
                 <td>{{ $invoice->account->name ?? 'POS Customer' }}</td>
                 <td>
@@ -70,7 +72,9 @@
 </div>
 <script>
   $(document).ready(function () {
-    $('.datatable').DataTable(); // if you are using DataTables
+    $('.datatable').DataTable({
+      order: [[1, 'desc']] // sort by Date column, descending — adjust index if you add data-order
+    });
   });
 </script>
 @endsection
