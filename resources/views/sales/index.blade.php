@@ -75,6 +75,7 @@
 <script>
   $(document).ready(function () {
     $('.datatable').DataTable({
+      pageLength: 50,
       order: [[1, 'desc']] // Date column, index 2 — sorts using data-order (real date), not display text
     });
   });
