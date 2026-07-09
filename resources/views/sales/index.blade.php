@@ -75,7 +75,7 @@
 <script>
   $(document).ready(function () {
     $('.datatable').DataTable({
-      order: [[2, 'desc']] // Date column, index 2 — sorts using data-order (real date), not display text
+      order: [[1, 'desc']] // Date column, index 2 — sorts using data-order (real date), not display text
     });
   });
 </script>
