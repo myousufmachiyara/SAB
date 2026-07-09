@@ -161,7 +161,7 @@ class SaleInvoiceController extends Controller
     public function index()
     {
         $invoices = SaleInvoice::with('items.product', 'account')
-            ->latest('invoice_date') // or 'id', or whatever column represents "latest"
+            ->latest('invoice_date') // change to 'date' if that's your actual column
             ->get();
         return view('sales.index', compact('invoices'));
     }

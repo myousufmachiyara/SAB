@@ -36,7 +36,9 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td class="text-primary">{{ $invoice->invoice_no }}</td>
-                <td>{{ $invoice->date }}</td>
+                <td data-order="{{ $invoice->invoice_date }}">
+                  {{ \Carbon\Carbon::parse($invoice->invoice_date)->format('d M, Y') }}
+                </td>
                 <td>{{ $invoice->account->name ?? 'POS Customer' }}</td>
                 <td>
                     <span class="badge {{ $invoice->type === 'credit' ? 'bg-warning' : 'bg-success' }}">{{ ucfirst($invoice->type) }}</span>
@@ -63,17 +65,17 @@
             </tr>
             @endforeach
             </tbody>
-
           </table>
         </div>
       </div>
     </section>
   </div>
 </div>
+
 <script>
   $(document).ready(function () {
     $('.datatable').DataTable({
-      order: [[1, 'desc']] // sort by Date column, descending — adjust index if you add data-order
+      order: [[2, 'desc']] // Date column, index 2 — sorts using data-order (real date), not display text
     });
   });
 </script>
