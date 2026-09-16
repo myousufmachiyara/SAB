@@ -212,7 +212,12 @@ class InventoryReportController extends Controller
 
                 $purchasePrice = $costingMethod === 'latest'
                     ? ($priceQuery->latest('purchase_invoices.invoice_date')->value('purchase_invoice_items.price') ?? 0)
-                    : ($priceQuery->avg('purchase_invoice_items.price') ?? 0);
+                    : (function () use ($priceQuery) {
+                        $stats = (clone $priceQuery)
+                            ->selectRaw('SUM(purchase_invoice_items.quantity * purchase_invoice_items.price) as total_value, SUM(purchase_invoice_items.quantity) as total_qty')
+                            ->first();
+                        return ($stats && $stats->total_qty > 0) ? ($stats->total_value / $stats->total_qty) : 0;
+                    })();
 
                 $biltyPrice = DB::table('purchase_bilty_details')
                     ->join('purchase_bilty', 'purchase_bilty_details.bilty_id', '=', 'purchase_bilty.id')

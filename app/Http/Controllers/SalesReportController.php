@@ -15,19 +15,35 @@ class SalesReportController extends Controller
     private function getLandedCost(int $productId): float
     {
         return \Cache::remember("landed_cost_prod_{$productId}", 3600, function () use ($productId) {
-            $avgPurchasePrice = DB::table('purchase_invoice_items')
+
+            // Weighted average purchase price (qty × price / total qty)
+            // NOT simple avg() which ignores quantities
+            $stats = DB::table('purchase_invoice_items')
                 ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                 ->where('purchase_invoice_items.item_id', $productId)
                 ->whereNull('purchase_invoices.deleted_at')
-                ->avg('purchase_invoice_items.price') ?? 0;
+                ->selectRaw('SUM(purchase_invoice_items.quantity * purchase_invoice_items.price) as total_value,
+                            SUM(purchase_invoice_items.quantity) as total_qty')
+                ->first();
 
-            $avgBiltyPerUnit = DB::table('purchase_bilty_details')
+            $weightedAvgPrice = ($stats && $stats->total_qty > 0)
+                ? ($stats->total_value / $stats->total_qty)
+                : 0;
+
+            // Weighted average bilty per unit
+            $biltyStats = DB::table('purchase_bilty_details')
                 ->join('purchase_bilty', 'purchase_bilty_details.bilty_id', '=', 'purchase_bilty.id')
                 ->where('purchase_bilty_details.item_id', $productId)
                 ->whereNull('purchase_bilty.deleted_at')
-                ->avg('purchase_bilty_details.price') ?? 0;
+                ->selectRaw('SUM(purchase_bilty_details.quantity * purchase_bilty_details.price) as total_value,
+                            SUM(purchase_bilty_details.quantity) as total_qty')
+                ->first();
 
-            return (float) $avgPurchasePrice + (float) $avgBiltyPerUnit;
+            $weightedAvgBilty = ($biltyStats && $biltyStats->total_qty > 0)
+                ? ($biltyStats->total_value / $biltyStats->total_qty)
+                : 0;
+
+            return (float) $weightedAvgPrice + (float) $weightedAvgBilty;
         });
     }
 
