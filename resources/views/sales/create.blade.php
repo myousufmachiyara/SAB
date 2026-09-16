@@ -3,189 +3,220 @@
 @section('title', 'Create Sale Invoice')
 
 @section('content')
-<style>
-    .select2-container--default .select2-selection--single {
-        height: 38px !important;
-        padding: 5px;
-        border: 1px solid #ced4da;
-    }
-    .select2-container {
-        display: block !important;
-        width: 100% !important;
-    }
-    #itemTable th { background: #f8f9fa; }
-    #itemTable td { vertical-align: middle; }
-    .stock-exceeded { border-color: red !important; }
-    .stock-ok       { border-color: #28a745 !important; }
-</style>
-
 <div class="row">
-    <form action="{{ route('sale_invoices.store') }}" onkeydown="return event.key != 'Enter';" method="POST">
-        @csrf
-        <div class="col-12 mb-2">
-            <section class="card">
-                <header class="card-header">
-                    <h2 class="card-title">Create Sale Invoice</h2>
-                    @if ($errors->any())
-                        <div class="alert alert-danger mt-2">
-                            <ul class="mb-0">
-                                @foreach ($errors->all() as $error)
-                                    <li>{{ $error }}</li>
-                                @endforeach
-                            </ul>
-                        </div>
-                    @endif
-                </header>
-                <div class="card-body">
-                    <div class="row mb-2">
-                        <div class="col-md-2">
-                            <label>Invoice #</label>
-                            <input type="text" name="invoice_no" class="form-control" readonly placeholder="Auto"/>
-                        </div>
-                        <div class="col-md-2">
-                            <label>Date</label>
-                            <input type="date" name="date" class="form-control" value="{{ date('Y-m-d') }}" required />
-                        </div>
-                        <div class="col-md-3">
-                            <label>Customer Name</label>
-                            <select name="account_id" class="form-control select2-js" required>
-                                <option value="">Select Customer</option>
-                                @foreach($customers as $account)
-                                    <option value="{{ $account->id }}">{{ $account->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label>Invoice Type</label>
-                            <select name="type" id="invoice_type" class="form-control" required>
-                                <option value="cash">Cash</option>
-                                <option value="credit">Credit</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </div>
+  <form action="{{ route('sale_invoices.store') }}" onkeydown="return event.key != 'Enter';" method="POST">
+    @csrf
 
-        <div class="col-12">
-            <section class="card">
-                <header class="card-header">
-                    <h2 class="card-title">Invoice Items</h2>
-                </header>
-                <div class="card-body">
-                    <table class="table table-bordered" id="itemTable">
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th width="15%">Variation</th>
-                                <th width="10%">Price</th>
-                                <th width="10%">Qty</th>
-                                <th width="12%">Total</th>
-                                <th width="50px"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>
-                                    <select name="items[0][product_id]" id="item_name0"
-                                            class="form-control select2-js product-select"
-                                            onchange="onItemNameChange(this)" required>
-                                        <option value="">Select Product</option>
-                                        @foreach($products as $product)
-                                            <option value="{{ $product->id }}"
-                                                    data-price="{{ $product->selling_price ?? 0 }}"
-                                                    data-stock="{{ $product->real_time_stock ?? 0 }}">
-                                                {{ $product->name }} (Stock: {{ $product->real_time_stock ?? 0 }})
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td>
-                                    <select name="items[0][variation_id]" id="variation0"
-                                            class="form-control select2-js variation-select">
-                                        <option value="">Select Variation</option>
-                                    </select>
-                                </td>
-                                <td><input type="number" name="items[0][sale_price]" class="form-control sale-price" step="any" required></td>
-                                <td>
-                                    <input type="number" name="items[0][quantity]" class="form-control quantity" step="any" required>
-                                    {{-- FIX: hidden field stores available stock for this row so JS can read it --}}
-                                    <small class="text-muted stock-hint"></small>
-                                </td>
-                                <td><input type="number" name="items[0][total]" class="form-control row-total" readonly></td>
-                                <td>
-                                    <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <button type="button" class="btn btn-success btn-sm" onclick="addRow()">+ Add Item</button>
-
-                    <hr>
-                    <div class="row mb-2">
-                        <div class="col-md-4">
-                            <label>Remarks</label>
-                            <textarea name="remarks" class="form-control" rows="2"></textarea>
-                        </div>
-                        <div class="col-md-2">
-                            <label><strong>Discount (PKR)</strong></label>
-                            <input type="number" name="discount" id="discountInput" class="form-control" step="any" value="0">
-                        </div>
-                        <div class="col-md-6 text-end">
-                            <label><strong>Total Bill</strong></label>
-                            <h4 class="text-primary mt-0">PKR <span id="netAmountText">0.00</span></h4>
-                            <input type="hidden" name="net_amount" id="netAmountInput">
-                        </div>
-                    </div>
-                    <hr>
-                    <div class="row mb-2">
-                        <div class="col-md-4">
-                            <label><strong>Receive Payment To:</strong></label>
-                            <select name="payment_account_id" class="form-control select2-js">
-                                <option value="">No Payment (Credit Sale)</option>
-                                @foreach($paymentAccounts as $pAc)
-                                    <option value="{{ $pAc->id }}">{{ $pAc->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label>Amount Received</label>
-                            <input type="number" name="amount_received" id="amountReceived"
-                                   class="form-control" step="any" value="0">
-                        </div>
-                        <div class="col-md-5 text-end">
-                            <label>Remaining Balance</label>
-                            <h4 class="text-danger mt-0">PKR <span id="balanceAmountText">0.00</span></h4>
-                        </div>
-                    </div>
-                </div>
-                <footer class="card-footer text-end">
-                    <a href="{{ route('sale_invoices.index') }}" class="btn btn-secondary">Cancel</a>
-                    <button type="submit" class="btn btn-primary">Save Invoice</button>
-                </footer>
-            </section>
+    {{-- ================= HEADER CARD ================= --}}
+    <div class="col-12 mb-2">
+      <section class="card">
+        <header class="card-header">
+          <h2 class="card-title">Create Sale Invoice</h2>
+          @if ($errors->any())
+            <div class="alert alert-danger mb-0">
+              <ul class="mb-0">
+                @foreach ($errors->all() as $error)
+                  <li>{{ $error }}</li>
+                @endforeach
+              </ul>
+            </div>
+          @endif
+        </header>
+        <div class="card-body">
+          <div class="row mb-2">
+            <div class="col-md-2">
+              <label>Invoice #</label>
+              <input type="text" class="form-control" placeholder="Auto" readonly/>
+            </div>
+            <div class="col-md-2">
+              <label>Date <span class="text-danger">*</span></label>
+              <input type="date" name="date" class="form-control" value="{{ date('Y-m-d') }}" required />
+            </div>
+            <div class="col-md-3">
+              <label>Customer <span class="text-danger">*</span></label>
+              <select name="account_id" class="form-control select2-js" required>
+                <option value="">— Select Customer —</option>
+                @foreach($customers as $account)
+                  <option value="{{ $account->id }}">{{ $account->name }}</option>
+                @endforeach
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label>Type <span class="text-danger">*</span></label>
+              <select name="type" id="invoiceType" class="form-control" required>
+                <option value="credit">Credit</option>
+                <option value="cash">Cash</option>
+              </select>
+            </div>
+          </div>
         </div>
-    </form>
+      </section>
+    </div>
+
+    {{-- ================= ITEMS CARD ================= --}}
+    <div class="col-12">
+      <section class="card">
+        <header class="card-header">
+          <h2 class="card-title">Invoice Items</h2>
+        </header>
+        <div class="card-body">
+
+          <table class="table table-bordered table-sm" id="itemTable">
+            <thead class="table-light">
+              <tr>
+                <th width="22%">Product</th>
+                <th width="40%">Customizations</th>
+                <th width="12%">Price</th>
+                <th width="10%">Qty</th>
+                <th width="12%">Total</th>
+                <th width="4%"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <select name="items[0][product_id]" class="form-control product-select" required>
+                    <option value="">— Select —</option>
+                    @foreach($products as $product)
+                      <option value="{{ $product->id }}"
+                              data-price="{{ $product->selling_price ?? 0 }}"
+                              data-stock="{{ $product->real_time_stock }}">
+                        {{ $product->name }} ({{ $product->real_time_stock }})
+                      </option>
+                    @endforeach
+                  </select>
+                  <div class="stock-badge mt-1"></div>
+                </td>
+                <td>
+                  <select name="items[0][customizations][]" multiple class="form-control customization-select">
+                    @foreach($products as $product)
+                      <option value="{{ $product->id }}" data-stock="{{ $product->real_time_stock }}">
+                        {{ $product->name }} ({{ $product->real_time_stock }})
+                      </option>
+                    @endforeach
+                  </select>
+                </td>
+                <td><input type="number" name="items[0][sale_price]" class="form-control sale-price" step="any" min="0" required></td>
+                <td>
+                  <input type="number" name="items[0][quantity]" class="form-control quantity" step="any" min="0.01" required>
+                  <div class="qty-warning text-danger" style="font-size:11px;"></div>
+                </td>
+                <td><input type="number" name="items[0][total]" class="form-control row-total" readonly></td>
+                <td>
+                  <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button type="button" class="btn btn-success btn-sm mb-3" onclick="addRow()">
+            <i class="fas fa-plus"></i> Add Item
+          </button>
+
+          <hr>
+
+          {{-- Remarks + Discount + Totals --}}
+          <div class="row mb-2">
+            <div class="col-md-4">
+              <label>Remarks</label>
+              <textarea name="remarks" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="col-md-2">
+              <label>Discount (PKR)</label>
+              <input type="number" name="discount" id="discountInput" class="form-control" step="any" min="0" value="0">
+            </div>
+            <div class="col-md-6 text-end">
+              <label class="d-block">Net Payable</label>
+              <h3 class="text-primary mb-0">PKR <span id="netAmountText">0.00</span></h3>
+              <input type="hidden" name="net_amount" id="netAmountInput" value="0">
+            </div>
+          </div>
+
+          <hr>
+
+          {{-- Payment --}}
+          <div class="row mb-2">
+            <div class="col-md-4">
+              <label>Receive Payment To</label>
+              <select name="payment_account_id" class="form-control select2-js">
+                <option value="">— No Payment (Credit) —</option>
+                @foreach($paymentAccounts as $pAc)
+                  <option value="{{ $pAc->id }}">{{ $pAc->name }}</option>
+                @endforeach
+              </select>
+              <small class="text-muted">Select Cash/Bank if payment received now.</small>
+            </div>
+            <div class="col-md-3">
+              <label>Amount Received</label>
+              <input type="number" name="amount_received" id="amountReceived" class="form-control" step="any" min="0" value="0">
+            </div>
+            <div class="col-md-5 text-end">
+              <label class="d-block">Remaining Balance</label>
+              <h4 class="text-danger mb-0">PKR <span id="balanceAmountText">0.00</span></h4>
+            </div>
+          </div>
+
+        </div>
+        <footer class="card-footer text-end">
+          <a href="{{ route('sale_invoices.index') }}" class="btn btn-secondary me-2">Cancel</a>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Save Invoice
+          </button>
+        </footer>
+      </section>
+    </div>
+
+  </form>
 </div>
 
+@php
+  // Encode products once for JS — avoids re-rendering inside addRow()
+  $productsJson = $products->map(fn($p) => [
+      'id'    => $p->id,
+      'name'  => $p->name,
+      'price' => $p->selling_price ?? 0,
+      'stock' => $p->real_time_stock,
+  ])->values()->toJson();
+@endphp
+
 <script>
-let rowIndex = $('#itemTable tbody tr').length;
+const PRODUCTS = {!! $productsJson !!};
+let rowIndex = 1;
 
 $(document).ready(function () {
-    $('.select2-js').select2({ width: '100%' });
+    // Non-table Select2s
+    $('select.select2-js').not('#itemTable select').select2({ width: '100%' });
 
-    // Row total recalc
-    $(document).on('input', '.sale-price, .quantity', function () {
-        calcRowTotal($(this).closest('tr'));
+    // Init the first row
+    $('#itemTable tbody tr').each(function () {
+        initRow($(this));
+        calcRowTotal($(this));
     });
 
-    // Balance recalc
-    $(document).on('input', '#amountReceived, #discountInput', calcTotal);
+    // Product change
+    $(document).on('change', '.product-select', function () {
+        const row = $(this).closest('tr');
+        const opt = $(this).find(':selected');
+        row.find('.sale-price').val(opt.data('price') || 0);
+        updateStockBadge(row);
+        reinitCustomizationSelect(row);
+        calcRowTotal(row);
+    });
 
-    // Cash: auto-fill amount received = net total
-    $(document).on('change', '#invoice_type', function () {
+    // Price / qty input
+    $(document).on('input', '.sale-price, .quantity', function () {
+        const row = $(this).closest('tr');
+        if ($(this).hasClass('quantity')) checkQtyStock(row);
+        calcRowTotal(row);
+    });
+
+    // Discount / received
+    $(document).on('input', '#discountInput, #amountReceived', calcTotal);
+
+    // Type toggle: cash → auto-fill received
+    $(document).on('change', '#invoiceType', function () {
         if ($(this).val() === 'cash') {
             $('#amountReceived').val($('#netAmountInput').val());
         } else {
@@ -194,157 +225,93 @@ $(document).ready(function () {
         calcTotal();
     });
 
-    // ─────────────────────────────────────────────────────────────
-    // FIX: Stock validation
-    //
-    // Old code looked for strong[id^="stock_display"] which was never
-    // rendered — so availableStock was always 0 and every qty > 0
-    // turned red.
-    //
-    // Fix: read data-stock from the SELECTED product option.
-    // If a variation is selected, use the variation's own stock
-    // from its data-stock attribute; otherwise fall back to the
-    // product-level stock.
-    // ─────────────────────────────────────────────────────────────
-    $(document).on('input', '.quantity', function () {
-        validateStock($(this).closest('tr'));
-    });
+    calcTotal();
 });
 
-// ─────────────────────────────────────────────────────────────────
-// getAvailableStock — reads stock for the currently selected
-// product option (and variation option if one is chosen)
-// ─────────────────────────────────────────────────────────────────
-function getAvailableStock($row) {
-    const $productSelect   = $row.find('.product-select');
-    const $variationSelect = $row.find('.variation-select');
-
-    // Check if a specific variation is selected and has its own stock
-    const $selectedVariation = $variationSelect.find('option:selected');
-    const variationStock     = parseFloat($selectedVariation.data('stock'));
-
-    if ($selectedVariation.val() && !isNaN(variationStock)) {
-        return variationStock;
-    }
-
-    // Fall back to product-level stock from the product option
-    const $selectedProduct = $productSelect.find('option:selected');
-    const productStock     = parseFloat($selectedProduct.data('stock'));
-    return isNaN(productStock) ? 0 : productStock;
+function initRow(row) {
+    row.find('.product-select').select2({ width: '100%' });
+    reinitCustomizationSelect(row);
+    updateStockBadge(row);
 }
 
-function validateStock($row) {
-    const $qtyInput      = $row.find('.quantity');
-    const $hint          = $row.find('.stock-hint');
-    const qty            = parseFloat($qtyInput.val()) || 0;
-    const availableStock = getAvailableStock($row);
+function reinitCustomizationSelect(row) {
+    const custSel  = row.find('.customization-select');
+    const mainId   = row.find('.product-select').val();
 
-    if (qty > availableStock) {
-        $qtyInput.addClass('stock-exceeded').removeClass('stock-ok');
-        $hint.text('⚠ Only ' + availableStock + ' available').css('color', 'red');
+    custSel.find('option').prop('disabled', false);
+    if (mainId) {
+        custSel.find(`option[value="${mainId}"]`).prop('disabled', true);
+    }
+
+    if (custSel.hasClass('select2-hidden-accessible')) custSel.select2('destroy');
+    custSel.select2({ width: '100%', placeholder: 'Customizations…', closeOnSelect: false });
+}
+
+function updateStockBadge(row) {
+    const opt   = row.find('.product-select :selected');
+    const stock = parseFloat(opt.data('stock')) || 0;
+    const badge = row.find('.stock-badge');
+
+    if (!row.find('.product-select').val()) { badge.html(''); return; }
+
+    let color = stock > 5 ? 'success' : (stock > 0 ? 'warning' : 'danger');
+    badge.html(`<span class="badge bg-${color}">Stock: ${stock}</span>`);
+}
+
+function checkQtyStock(row) {
+    const opt   = row.find('.product-select :selected');
+    const stock = parseFloat(opt.data('stock')) || 0;
+    const qty   = parseFloat(row.find('.quantity').val()) || 0;
+    const warn  = row.find('.qty-warning');
+    const input = row.find('.quantity');
+
+    if (stock <= 0 && row.find('.product-select').val()) {
+        input.css('border-color', 'red');
+        warn.text('⚠ Out of stock');
+    } else if (qty > stock) {
+        input.css('border-color', 'orange');
+        warn.text(`⚠ Only ${stock} available`);
     } else {
-        $qtyInput.addClass('stock-ok').removeClass('stock-exceeded');
-        $hint.text('In stock: ' + availableStock).css('color', '#28a745');
+        input.css('border-color', '');
+        warn.text('');
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// addRow — builds a new table row with Blade-rendered product list
-// ─────────────────────────────────────────────────────────────────
 function addRow() {
-    const idx    = rowIndex++;
+    const idx = rowIndex++;
+
+    // Build options from PRODUCTS array — no Blade loop inside JS
+    let productOpts = '<option value="">— Select —</option>';
+    let customOpts  = '';
+    PRODUCTS.forEach(p => {
+        productOpts += `<option value="${p.id}" data-price="${p.price}" data-stock="${p.stock}">${p.name} (${p.stock})</option>`;
+        customOpts  += `<option value="${p.id}" data-stock="${p.stock}">${p.name} (${p.stock})</option>`;
+    });
+
     const rowHtml = `
     <tr>
-        <td>
-            <select name="items[${idx}][product_id]" id="item_name${idx}"
-                    class="form-control product-select" onchange="onItemNameChange(this)" required>
-                <option value="">Select Product</option>
-                @foreach($products as $product)
-                    <option value="{{ $product->id }}"
-                            data-price="{{ $product->selling_price ?? 0 }}"
-                            data-stock="{{ $product->real_time_stock ?? 0 }}">
-                        {{ $product->name }} (Stock: {{ $product->real_time_stock ?? 0 }})
-                    </option>
-                @endforeach
-            </select>
-        </td>
-        <td>
-            <select name="items[${idx}][variation_id]" id="variation${idx}"
-                    class="form-control variation-select">
-                <option value="">Select Variation</option>
-            </select>
-        </td>
-        <td><input type="number" name="items[${idx}][sale_price]" class="form-control sale-price" step="any" required></td>
-        <td>
-            <input type="number" name="items[${idx}][quantity]" class="form-control quantity" step="any" required>
-            <small class="text-muted stock-hint"></small>
-        </td>
-        <td><input type="number" name="items[${idx}][total]" class="form-control row-total" readonly></td>
-        <td>
-            <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)">
-                <i class="fas fa-times"></i>
-            </button>
-        </td>
+      <td>
+        <select name="items[${idx}][product_id]" class="form-control product-select" required>
+          ${productOpts}
+        </select>
+        <div class="stock-badge mt-1"></div>
+      </td>
+      <td>
+        <select name="items[${idx}][customizations][]" multiple class="form-control customization-select">
+          ${customOpts}
+        </select>
+      </td>
+      <td><input type="number" name="items[${idx}][sale_price]" class="form-control sale-price" step="any" min="0" required></td>
+      <td>
+        <input type="number" name="items[${idx}][quantity]" class="form-control quantity" step="any" min="0.01" required>
+        <div class="qty-warning text-danger" style="font-size:11px;"></div>
+      </td>
+      <td><input type="number" name="items[${idx}][total]" class="form-control row-total" readonly></td>
+      <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     </tr>`;
 
     $('#itemTable tbody').append(rowHtml);
-    $(`#item_name${idx}, #variation${idx}`).select2({ width: '100%' });
-}
-
-// ─────────────────────────────────────────────────────────────────
-// onItemNameChange — fires when a product is selected
-// ─────────────────────────────────────────────────────────────────
-function onItemNameChange(selectElement) {
-    const $row     = $(selectElement).closest('tr');
-    const itemId   = selectElement.value;
-    const idMatch  = selectElement.id.match(/\d+$/);
-    if (!idMatch) return;
-    const rowNum   = idMatch[0];
-
-    // Auto-fill price from data-price attribute
-    const $selectedOption = $(selectElement.options[selectElement.selectedIndex]);
-    $row.find('.sale-price').val($selectedOption.data('price') || 0);
-
-    // Reset variation dropdown
-    const $variationSelect = $(`#variation${rowNum}`);
-
-    if (!itemId) {
-        $variationSelect.html('<option value="">Select Variation</option>').trigger('change.select2');
-        $row.find('.stock-hint').text('');
-        $row.find('.quantity').removeClass('stock-exceeded stock-ok');
-        calcRowTotal($row);
-        return;
-    }
-
-    $variationSelect.html('<option value="">Loading...</option>').trigger('change.select2');
-
-    fetch(`/product/${itemId}/variations`)
-        .then(res => res.json())
-        .then(data => {
-            const variations = data.variation || data.variations || [];
-
-            if (variations.length > 0) {
-                let html = '<option value="">Select Variation</option>';
-                variations.forEach(v => {
-                    // Store per-variation stock in data-stock so validation can read it
-                    const vStock = v.stock_quantity ?? v.current_stock ?? 0;
-                    const label  = [v.sku, v.name].filter(Boolean).join(' ');
-                    html += `<option value="${v.id}" data-stock="${vStock}">${label} (Stock: ${vStock})</option>`;
-                });
-                $variationSelect.html(html);
-            } else {
-                $variationSelect.html('<option value="">Standard (No Variations)</option>');
-            }
-            $variationSelect.trigger('change.select2');
-
-            // Re-run stock validation now that dropdown is populated
-            validateStock($row);
-        })
-        .catch(() => {
-            $variationSelect.html('<option value="">Error loading</option>').trigger('change.select2');
-        });
-
-    calcRowTotal($row);
+    initRow($('#itemTable tbody tr').last());
 }
 
 function removeRow(btn) {
@@ -354,27 +321,24 @@ function removeRow(btn) {
     }
 }
 
-function calcRowTotal($row) {
-    const price = parseFloat($row.find('.sale-price').val()) || 0;
-    const qty   = parseFloat($row.find('.quantity').val())   || 0;
-    $row.find('.row-total').val((price * qty).toFixed(2));
-    validateStock($row);
+function calcRowTotal(row) {
+    const price = parseFloat(row.find('.sale-price').val()) || 0;
+    const qty   = parseFloat(row.find('.quantity').val())   || 0;
+    row.find('.row-total').val((price * qty).toFixed(2));
     calcTotal();
 }
 
 function calcTotal() {
-    let total = 0;
-    $('.row-total').each(function () {
-        total += parseFloat($(this).val()) || 0;
-    });
+    let subTotal = 0;
+    $('.row-total').each(function () { subTotal += parseFloat($(this).val()) || 0; });
+
     const discount  = parseFloat($('#discountInput').val()) || 0;
-    const netAmount = Math.max(0, total - discount);
+    const netAmount = Math.max(0, subTotal - discount);
+    const received  = parseFloat($('#amountReceived').val()) || 0;
+    const balance   = netAmount - received;
 
     $('#netAmountText').text(netAmount.toLocaleString(undefined, { minimumFractionDigits: 2 }));
     $('#netAmountInput').val(netAmount.toFixed(2));
-
-    const received = parseFloat($('#amountReceived').val()) || 0;
-    const balance  = netAmount - received;
     $('#balanceAmountText').text(balance.toLocaleString(undefined, { minimumFractionDigits: 2 }));
 }
 </script>

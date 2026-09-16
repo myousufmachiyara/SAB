@@ -115,11 +115,29 @@ Route::middleware(['auth'])->group(function () {
     // Reports (readonly)
     Route::prefix('reports')->name('reports.')->group(function () {
         Route::get('inventory', [InventoryReportController::class, 'inventoryReports'])->name('inventory');
-        Route::get('purchase', [PurchaseReportController::class, 'purchaseReports'])->name('purchase');
-        Route::get('sale', [SalesReportController::class, 'saleReports'])->name('sale');
-        Route::get('accounts', [AccountsReportController::class, 'accounts'])->name('accounts');
+        Route::get('purchase',  [PurchaseReportController::class,  'purchaseReports']) ->name('purchase');
+        Route::get('sale',      [SalesReportController::class,     'saleReports'])     ->name('sale');
+        Route::get('accounts',  [AccountsReportController::class,  'accounts'])        ->name('accounts');
+        Route::get('sale/profit/{id}', [SalesReportController::class, 'printProfitReport'])->name('print-profit');
     });
 
     Route::get('/get-location-stock', [ProductController::class, 'getLocationStock']);
-    Route::get('/stock-lots/available', [StockTransferController::class, 'getAvailableLots'])->name('stock.lots.available');    
+    Route::get('/stock-lots/available', [StockTransferController::class, 'getAvailableLots'])->name('stock.lots.available');
+    
+    // Sale invoice utility routes — must be BEFORE the modules loop
+// so they aren't shadowed by the generic {id} pattern
+Route::get('/sale-invoices/audit-vouchers',
+    [SaleInvoiceController::class, 'auditVouchers'])
+    ->name('sale_invoices.audit_vouchers')
+    ->middleware('auth');
+
+Route::post('/sale-invoices/bulk-regenerate-vouchers',
+    [SaleInvoiceController::class, 'bulkRegenerateVouchers'])
+    ->name('sale_invoices.bulk_regenerate_vouchers')
+    ->middleware('auth');
+
+Route::delete('/sale-invoices/receipt/{id}',
+    [SaleInvoiceController::class, 'deleteReceipt'])
+    ->name('sale_invoices.delete_receipt')
+    ->middleware('auth');
 });

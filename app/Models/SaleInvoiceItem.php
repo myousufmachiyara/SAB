@@ -9,12 +9,17 @@ class SaleInvoiceItem extends Model
     protected $fillable = [
         'sale_invoice_id',
         'product_id',
-        'variation_id',
         'sale_price',
         'quantity',
+        'discount',
     ];
 
     public function saleInvoice()
+    {
+        return $this->belongsTo(SaleInvoice::class, 'sale_invoice_id');
+    }
+
+    public function invoice()
     {
         return $this->belongsTo(SaleInvoice::class, 'sale_invoice_id');
     }
@@ -24,9 +29,8 @@ class SaleInvoiceItem extends Model
         return $this->belongsTo(Product::class);
     }
 
-    public function variation()
+    public function customizations()
     {
-        return $this->belongsTo(ProductVariation::class, 'variation_id');
+        return $this->hasMany(SaleItemCustomization::class, 'sale_invoice_items_id');
     }
 }
-

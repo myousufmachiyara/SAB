@@ -16,6 +16,7 @@ class SaleInvoice extends Model
         'account_id',
         'type',
         'discount',
+        'net_amount',
         'created_by',
     ];
 
@@ -28,5 +29,10 @@ class SaleInvoice extends Model
     {
         return $this->belongsTo(ChartOfAccounts::class, 'account_id');
     }
-}
 
+    public function receiptVouchers()
+    {
+        return $this->hasMany(Voucher::class, 'reference')
+                    ->where('voucher_type', 'receipt');
+    }
+}
