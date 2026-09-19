@@ -16,10 +16,6 @@ use Illuminate\Support\Facades\Log;
 
 class SaleInvoiceController extends Controller
 {
-    // ─────────────────────────────────────────────────────────────
-    // Stock calculation — bulk queries matching InventoryReportController
-    // sale_returns has no deleted_at; purchase_returns has no deleted_at
-    // ─────────────────────────────────────────────────────────────
     private function getProductsWithStock(): \Illuminate\Support\Collection
     {
         $purchased = DB::table('purchase_invoice_items')
@@ -49,7 +45,6 @@ class SaleInvoiceController extends Controller
             ->select('purchase_return_items.item_id as product_id', DB::raw('SUM(purchase_return_items.quantity) as qty'))
             ->pluck('qty', 'product_id');
 
-        // sale_returns has no deleted_at column
         $saleReturned = DB::table('sale_return_items')
             ->groupBy('sale_return_items.product_id')
             ->select('sale_return_items.product_id', DB::raw('SUM(sale_return_items.qty) as qty'))
@@ -57,47 +52,50 @@ class SaleInvoiceController extends Controller
 
         return Product::orderBy('name')->whereNull('deleted_at')->get()
             ->map(function ($product) use ($purchased, $sold, $customized, $purchaseReturned, $saleReturned) {
-
-                // opening_stock from products table
                 $openingStock = (float) ($product->opening_stock ?? 0);
 
                 $in  = $openingStock
-                    + ($purchased[$product->id]    ?? 0)
-                    + ($saleReturned[$product->id] ?? 0);
+                     + ($purchased[$product->id]    ?? 0)
+                     + ($saleReturned[$product->id] ?? 0);
 
                 $out = ($sold[$product->id]             ?? 0)
-                    + ($customized[$product->id]       ?? 0)
-                    + ($purchaseReturned[$product->id] ?? 0);
+                     + ($customized[$product->id]       ?? 0)
+                     + ($purchaseReturned[$product->id] ?? 0);
 
                 $product->real_time_stock = $in - $out;
                 return $product;
             });
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Landed cost = avg purchase price + avg bilty charge per unit
-    // Matches what InventoryReportController shows in stock valuation
-    // ─────────────────────────────────────────────────────────────
     private function calcLandedCost(int $productId): float
     {
-        $avgPurchasePrice = DB::table('purchase_invoice_items')
+        $stats = DB::table('purchase_invoice_items')
             ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
             ->where('purchase_invoice_items.item_id', $productId)
             ->whereNull('purchase_invoices.deleted_at')
-            ->avg('purchase_invoice_items.price') ?? 0;
+            ->selectRaw('SUM(purchase_invoice_items.quantity * purchase_invoice_items.price) as total_value,
+                         SUM(purchase_invoice_items.quantity) as total_qty')
+            ->first();
 
-        $avgBiltyPerUnit = DB::table('purchase_bilty_details')
+        $weightedAvgPrice = ($stats && $stats->total_qty > 0)
+            ? ($stats->total_value / $stats->total_qty)
+            : 0;
+
+        $biltyStats = DB::table('purchase_bilty_details')
             ->join('purchase_bilty', 'purchase_bilty_details.bilty_id', '=', 'purchase_bilty.id')
             ->where('purchase_bilty_details.item_id', $productId)
             ->whereNull('purchase_bilty.deleted_at')
-            ->avg('purchase_bilty_details.price') ?? 0;
+            ->selectRaw('SUM(purchase_bilty_details.quantity * purchase_bilty_details.price) as total_value,
+                         SUM(purchase_bilty_details.quantity) as total_qty')
+            ->first();
 
-        return (float) $avgPurchasePrice + (float) $avgBiltyPerUnit;
+        $weightedAvgBilty = ($biltyStats && $biltyStats->total_qty > 0)
+            ? ($biltyStats->total_value / $biltyStats->total_qty)
+            : 0;
+
+        return (float) $weightedAvgPrice + (float) $weightedAvgBilty;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Shared account queries
-    // ─────────────────────────────────────────────────────────────
     private function getCustomers($selectedId = null)
     {
         $q = ChartOfAccounts::where('account_type', 'customer');
@@ -137,9 +135,26 @@ class SaleInvoiceController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function index()
     {
-        $invoices = SaleInvoice::with('items.product', 'account', 'receiptVouchers')
+        $invoices = SaleInvoice::with('items.product', 'account')
             ->latest()
             ->get();
+
+        // Load receipt vouchers manually using SI- prefix
+        $siReferences = $invoices->map(fn($inv) => 'SI-' . $inv->id)->toArray();
+
+        $receipts = Voucher::whereIn('reference', $siReferences)
+            ->where('voucher_type', 'receipt')
+            ->whereNull('deleted_at')
+            ->get()
+            ->groupBy('reference');
+
+        $invoices->each(function ($invoice) use ($receipts) {
+            $invoice->setRelation(
+                'receiptVouchers',
+                $receipts->get('SI-' . $invoice->id, collect())
+            );
+        });
+
         return view('sales.index', compact('invoices'));
     }
 
@@ -193,6 +208,7 @@ class SaleInvoiceController extends Controller
                 'created_by' => Auth::id(),
             ]);
 
+            $reference = 'SI-' . $invoice->id;
             $totalBill = 0;
             $totalCost = 0;
 
@@ -202,7 +218,6 @@ class SaleInvoiceController extends Controller
                     'product_id'      => $item['product_id'],
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
-                    'discount'        => 0,
                 ]);
 
                 $totalBill += $item['sale_price'] * $item['quantity'];
@@ -221,10 +236,8 @@ class SaleInvoiceController extends Controller
             }
 
             $netTotal = max(0, $totalBill - ($validated['discount'] ?? 0));
-
             $invoice->update(['net_amount' => $netTotal]);
 
-            // Sales Revenue voucher: DR Customer / CR Revenue
             Voucher::create([
                 'voucher_type' => 'journal',
                 'date'         => $validated['date'],
@@ -232,10 +245,9 @@ class SaleInvoiceController extends Controller
                 'ac_cr_sid'    => $salesAccount->id,
                 'amount'       => $netTotal,
                 'remarks'      => "Sales Invoice #{$invoiceNo}",
-                'reference'    => $invoice->id,
+                'reference'    => $reference,
             ]);
 
-            // COGS voucher: DR COGS / CR Inventory
             if ($inventoryAccount && $cogsAccount && $totalCost > 0) {
                 Voucher::create([
                     'voucher_type' => 'journal',
@@ -244,11 +256,10 @@ class SaleInvoiceController extends Controller
                     'ac_cr_sid'    => $inventoryAccount->id,
                     'amount'       => $totalCost,
                     'remarks'      => "COGS for Invoice #{$invoiceNo}",
-                    'reference'    => $invoice->id,
+                    'reference'    => $reference,
                 ]);
             }
 
-            // Payment receipt voucher: DR Cash/Bank / CR Customer
             if ($request->filled('payment_account_id') && (float) $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
@@ -257,7 +268,7 @@ class SaleInvoiceController extends Controller
                     'ac_cr_sid'    => $validated['account_id'],
                     'amount'       => $validated['amount_received'],
                     'remarks'      => "Payment received for Invoice #{$invoiceNo}",
-                    'reference'    => $invoice->id,
+                    'reference'    => $reference,
                 ]);
             }
 
@@ -277,11 +288,9 @@ class SaleInvoiceController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function edit($id)
     {
-        $invoice  = SaleInvoice::with(['items.customizations', 'account', 'receiptVouchers'])->findOrFail($id);
+        $invoice  = SaleInvoice::with(['items.customizations', 'account'])->findOrFail($id);
         $products = $this->getProductsWithStock();
 
-        // Add back quantities consumed by this invoice so existing items
-        // don't appear as over-stock
         $mainQtyMap   = $invoice->items->keyBy('product_id');
         $customQtyMap = [];
         foreach ($invoice->items as $item) {
@@ -300,10 +309,20 @@ class SaleInvoiceController extends Controller
             return $product;
         });
 
-        $amountReceived = Voucher::where('reference', $invoice->id)
+        $reference      = 'SI-' . $invoice->id;
+        $amountReceived = Voucher::where('reference', $reference)
             ->where('voucher_type', 'receipt')
             ->whereNull('deleted_at')
             ->sum('amount');
+
+        // Load receipt vouchers for the payment history table
+        $invoice->setRelation(
+            'receiptVouchers',
+            Voucher::where('reference', $reference)
+                ->where('voucher_type', 'receipt')
+                ->whereNull('deleted_at')
+                ->get()
+        );
 
         $customers       = $this->getCustomers($invoice->account_id);
         $paymentAccounts = $this->getPaymentAccounts();
@@ -340,6 +359,7 @@ class SaleInvoiceController extends Controller
 
             $invoice   = SaleInvoice::findOrFail($id);
             $invoiceNo = $invoice->invoice_no;
+            $reference = 'SI-' . $invoice->id;
 
             $invoice->update([
                 'date'       => $validated['date'],
@@ -349,7 +369,6 @@ class SaleInvoiceController extends Controller
                 'remarks'    => $validated['remarks'] ?? null,
             ]);
 
-            // Clear items and customizations
             SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
             $invoice->items()->delete();
 
@@ -362,7 +381,6 @@ class SaleInvoiceController extends Controller
                     'product_id'      => $item['product_id'],
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
-                    'discount'        => 0,
                 ]);
 
                 $totalBill += $item['sale_price'] * $item['quantity'];
@@ -383,8 +401,7 @@ class SaleInvoiceController extends Controller
             $netTotal = max(0, $totalBill - ($validated['discount'] ?? 0));
             $invoice->update(['net_amount' => $netTotal]);
 
-            // Delete old journal vouchers and recreate
-            Voucher::where('reference', $invoice->id)->where('voucher_type', 'journal')->delete();
+            Voucher::where('reference', $reference)->where('voucher_type', 'journal')->delete();
 
             Voucher::create([
                 'voucher_type' => 'journal',
@@ -393,7 +410,7 @@ class SaleInvoiceController extends Controller
                 'ac_cr_sid'    => $salesAccount->id,
                 'amount'       => $netTotal,
                 'remarks'      => "Updated: Sales Invoice #{$invoiceNo}",
-                'reference'    => $invoice->id,
+                'reference'    => $reference,
             ]);
 
             if ($inventoryAccount && $cogsAccount && $totalCost > 0) {
@@ -404,16 +421,14 @@ class SaleInvoiceController extends Controller
                     'ac_cr_sid'    => $inventoryAccount->id,
                     'amount'       => $totalCost,
                     'remarks'      => "Updated: COGS for Invoice #{$invoiceNo}",
-                    'reference'    => $invoice->id,
+                    'reference'    => $reference,
                 ]);
             }
 
-            // Update existing receipt vouchers if submitted
             if (!empty($request->existing_receipts)) {
                 $this->updateExistingReceipts($request->existing_receipts, $validated['account_id']);
             }
 
-            // Add new payment receipt if provided
             if ($request->filled('payment_account_id') && (float) $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
@@ -422,7 +437,7 @@ class SaleInvoiceController extends Controller
                     'ac_cr_sid'    => $validated['account_id'],
                     'amount'       => $validated['amount_received'],
                     'remarks'      => $request->payment_remarks ?: "Payment for Invoice #{$invoiceNo}",
-                    'reference'    => $invoice->id,
+                    'reference'    => $reference,
                 ]);
             }
 
@@ -444,10 +459,12 @@ class SaleInvoiceController extends Controller
     {
         DB::beginTransaction();
         try {
-            $invoice = SaleInvoice::findOrFail($id);
+            $invoice   = SaleInvoice::findOrFail($id);
+            $reference = 'SI-' . $invoice->id;
+
             SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
             $invoice->items()->delete();
-            Voucher::where('reference', $invoice->id)->delete();
+            Voucher::where('reference', $reference)->delete();
             $invoice->delete();
 
             DB::commit();
@@ -466,9 +483,8 @@ class SaleInvoiceController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function print($id)
     {
-        $invoice = SaleInvoice::with(['account', 'items.product'])->findOrFail($id);
-
-        $amountReceived = Voucher::where('reference', $invoice->id)
+        $invoice        = SaleInvoice::with(['account', 'items.product'])->findOrFail($id);
+        $amountReceived = Voucher::where('reference', 'SI-' . $invoice->id)
             ->where('voucher_type', 'receipt')
             ->whereNull('deleted_at')
             ->sum('amount');
@@ -569,13 +585,12 @@ class SaleInvoiceController extends Controller
         }
 
         if ($pdf->GetY() > 250) $pdf->AddPage();
-
         $pdf->Ln(20);
         $y = $pdf->GetY();
         $pdf->Line(28, $y, 88, $y);
         $pdf->Line(130, $y, 190, $y);
         $pdf->SetFont('helvetica', 'B', 10);
-        $pdf->SetXY(28, $y + 2);  $pdf->Cell(60, 10, 'Customer Signature',  0, 0, 'C');
+        $pdf->SetXY(28,  $y + 2); $pdf->Cell(60, 10, 'Customer Signature',  0, 0, 'C');
         $pdf->SetXY(130, $y + 2); $pdf->Cell(60, 10, 'Authorized Signature', 0, 0, 'C');
 
         return $pdf->Output('Invoice_' . $invoice->invoice_no . '.pdf', 'I');
@@ -597,7 +612,7 @@ class SaleInvoiceController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────
-    // AUDIT MISSING VOUCHERS (AJAX — superadmin only)
+    // AUDIT MISSING VOUCHERS
     // ─────────────────────────────────────────────────────────────
     public function auditVouchers()
     {
@@ -609,7 +624,8 @@ class SaleInvoiceController extends Controller
         $missing  = [];
 
         foreach ($invoices as $inv) {
-            $journalCount = Voucher::where('reference', $inv->id)
+            $reference    = 'SI-' . $inv->id;
+            $journalCount = Voucher::where('reference', $reference)
                 ->where('voucher_type', 'journal')
                 ->whereNull('deleted_at')
                 ->count();
@@ -617,7 +633,10 @@ class SaleInvoiceController extends Controller
             if ($journalCount === 0) {
                 $itemTotal    = $inv->items->sum(fn($i) => $i->sale_price * $i->quantity);
                 $netTotal     = max(0, $itemTotal - ($inv->discount ?? 0));
-                $receiptTotal = Voucher::where('reference', $inv->id)->where('voucher_type', 'receipt')->whereNull('deleted_at')->sum('amount');
+                $receiptTotal = Voucher::where('reference', $reference)
+                    ->where('voucher_type', 'receipt')
+                    ->whereNull('deleted_at')
+                    ->sum('amount');
 
                 $missing[] = [
                     'id'            => $inv->id,
@@ -638,7 +657,7 @@ class SaleInvoiceController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────
-    // BULK REGENERATE VOUCHERS (AJAX)
+    // BULK REGENERATE VOUCHERS
     // ─────────────────────────────────────────────────────────────
     public function bulkRegenerateVouchers(Request $request)
     {
@@ -656,7 +675,9 @@ class SaleInvoiceController extends Controller
         foreach ($invoices as $invoice) {
             DB::beginTransaction();
             try {
-                Voucher::where('reference', $invoice->id)->where('voucher_type', 'journal')->delete();
+                $reference = 'SI-' . $invoice->id;
+
+                Voucher::where('reference', $reference)->where('voucher_type', 'journal')->delete();
 
                 $totalBill = $invoice->items->sum(fn($i) => $i->sale_price * $i->quantity);
                 $netTotal  = max(0, $totalBill - ($invoice->discount ?? 0));
@@ -677,7 +698,7 @@ class SaleInvoiceController extends Controller
                     'ac_cr_sid'    => $salesAccount->id,
                     'amount'       => $netTotal,
                     'remarks'      => "Regenerated: Sales Invoice #{$invoice->invoice_no}",
-                    'reference'    => $invoice->id,
+                    'reference'    => $reference,
                 ]);
 
                 if ($inventoryAccount && $cogsAccount && $totalCost > 0) {
@@ -688,7 +709,7 @@ class SaleInvoiceController extends Controller
                         'ac_cr_sid'    => $inventoryAccount->id,
                         'amount'       => $totalCost,
                         'remarks'      => "Regenerated: COGS for Invoice #{$invoice->invoice_no}",
-                        'reference'    => $invoice->id,
+                        'reference'    => $reference,
                     ]);
                 }
 

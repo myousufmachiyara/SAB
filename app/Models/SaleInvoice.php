@@ -30,9 +30,17 @@ class SaleInvoice extends Model
         return $this->belongsTo(ChartOfAccounts::class, 'account_id');
     }
 
+    // reference is stored as 'SI-{id}' — cannot use standard hasMany
+    // Use getReceiptVouchersAttribute or load manually in controller
     public function receiptVouchers()
     {
-        return $this->hasMany(Voucher::class, 'reference')
+        return $this->hasMany(Voucher::class, 'reference', 'id')
                     ->where('voucher_type', 'receipt');
+    }
+
+    // Accessor so $invoice->si_reference always gives 'SI-{id}'
+    public function getSiReferenceAttribute(): string
+    {
+        return 'SI-' . $this->id;
     }
 }
