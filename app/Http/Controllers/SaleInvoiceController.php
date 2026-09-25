@@ -135,9 +135,13 @@ class SaleInvoiceController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function index()
     {
-        $invoices = SaleInvoice::with('items.product', 'account')
-            ->latest()
-            ->get();
+        $query = SaleInvoice::with('items.product', 'account')->latest();
+
+        if (!auth()->user()->hasRole('superadmin')) {
+            $query->where('created_by', auth()->id());
+        }
+
+        $invoices = $query->get();
 
         // Load receipt vouchers manually using SI- prefix
         $siReferences = $invoices->map(fn($inv) => 'SI-' . $inv->id)->toArray();

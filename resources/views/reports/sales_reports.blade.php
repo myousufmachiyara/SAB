@@ -64,22 +64,27 @@
                     </button>
                 </div>
 
+                {{-- Replace the SR summary card @if block --}}
                 @if($tab === 'SR' && $sales->count())
                 @php $srTotal = $sales->sum('revenue'); @endphp
                 <div class="col-md-4 d-flex align-items-end justify-content-end">
                     <div class="card card-featured-left card-featured-success w-100 mb-0">
                         <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
                             <div>
-                                <small class="card-title text-dark d-block" style="font-size:11px;letter-spacing:1px;">TOTAL SALES</small>
+                                <small class="card-title text-dark d-block"
+                                    style="font-size:11px;letter-spacing:1px;">TOTAL SALES</small>
                                 <span class="text-dark" style="font-size:11px;">
-                                    {{ \Carbon\Carbon::parse($from)->format('d M') }} — {{ \Carbon\Carbon::parse($to)->format('d M Y') }}
+                                    {{ \Carbon\Carbon::parse($from)->format('d M') }}
+                                    — {{ \Carbon\Carbon::parse($to)->format('d M Y') }}
                                 </span>
                             </div>
                             <div class="text-end">
+                                @if(auth()->user()->hasRole('superadmin'))
                                 <h3 class="amount m-0 text-success fw-bold">
                                     {{ number_format($srTotal, 2) }}
                                     <small class="text-dark h6"> PKR</small>
                                 </h3>
+                                @endif
                                 <small class="text-muted">{{ $sales->count() }} invoice(s)</small>
                             </div>
                         </div>
@@ -113,15 +118,18 @@
                             </td>
                             <td>{{ $row->customer }}</td>
                             <td class="text-end fw-bold">{{ number_format($row->revenue, 2) }}</td>
+                            {{-- Inside the SR tab tbody, replace the actions td --}}
                             <td class="text-center no-print">
                                 <a href="{{ route('sale_invoices.print', $row->id) }}"
-                                   target="_blank" class="btn btn-outline-success btn-sm" title="Print">
+                                    target="_blank" class="btn btn-outline-success btn-sm" title="Print">
                                     <i class="fas fa-print"></i>
                                 </a>
+                                @if(auth()->user()->hasRole('superadmin'))
                                 <a href="{{ route('sale_invoices.edit', $row->id) }}"
-                                   class="btn btn-outline-primary btn-sm ms-1" title="Edit">
+                                    class="btn btn-outline-primary btn-sm ms-1" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </a>
+                                @endif
                             </td>
                         </tr>
                     @empty

@@ -34,23 +34,17 @@ class PurchaseInvoiceController extends Controller
     // ─────────────────────────────────────────────────────────────
     // INDEX
     // ─────────────────────────────────────────────────────────────
-    public function index(Request $request)
+    public function index()
     {
-        $user  = auth()->user();
-        $query = PurchaseInvoice::with(['vendor', 'attachments']);
+        $query = PurchaseInvoice::with('vendor', 'items');
 
-        if ($request->has('view_deleted')) {
-            $query->onlyTrashed();
-        }
-
-        // Non-superadmin sees only their own records
-        if (!$user->hasRole('superadmin')) {
-            $query->where('created_by', $user->id);
+        if (!auth()->user()->hasRole('superadmin')) {
+            $query->where('created_by', auth()->id());
         }
 
         $invoices = $query->latest()->get();
 
-        return view('purchases.index', compact('invoices'));
+        return view('purchase-invoices.index', compact('invoices'));
     }
 
     // ─────────────────────────────────────────────────────────────

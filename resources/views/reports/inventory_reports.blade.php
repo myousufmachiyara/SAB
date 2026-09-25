@@ -9,12 +9,14 @@
 <div class="tabs">
     <ul class="nav nav-tabs">
         <li class="nav-item">
-            <a class="nav-link {{ $tab=='IL'?'active':'' }}" data-bs-toggle="tab" href="#IL">
+            <a class="nav-link {{ $tab=='IL'?'active':'' }}"
+               href="{{ route('reports.inventory', ['tab'=>'IL','from_date'=>$from,'to_date'=>$to]) }}">
                 Item Ledger
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link {{ $tab=='SR'?'active':'' }}" data-bs-toggle="tab" href="#SR">
+            <a class="nav-link {{ $tab=='SR'?'active':'' }}"
+               href="{{ route('reports.inventory', ['tab'=>'SR','to_date'=>$to]) }}">
                 Stock In Hand
             </a>
         </li>
@@ -24,7 +26,7 @@
 
         {{-- ================= ITEM LEDGER ================= --}}
         <div id="IL" class="tab-pane fade {{ $tab=='IL'?'show active':'' }}">
-            <form method="GET" class="mb-3 no-print">
+            <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3 no-print">
                 <input type="hidden" name="tab" value="IL">
                 <div class="row">
                     <div class="col-md-3">
@@ -61,7 +63,9 @@
 
             @if(request('item_id'))
             <div class="mb-3 text-end">
-                <h5>Closing Balance: <span class="text-danger fw-bold">{{ number_format($closing, 2) }}</span></h5>
+                <h5>Closing Balance:
+                    <span class="text-danger fw-bold">{{ number_format($closing, 2) }}</span>
+                </h5>
             </div>
             @endif
 
@@ -87,8 +91,8 @@
                     @php $runningBal = $openingQty; @endphp
                     @forelse($itemLedger as $row)
                         @php
-                            $qtyIn  = (float)($row->qty_in  ?? 0);
-                            $qtyOut = (float)($row->qty_out ?? 0);
+                            $qtyIn      = (float)($row->qty_in  ?? 0);
+                            $qtyOut     = (float)($row->qty_out ?? 0);
                             $runningBal += ($qtyIn - $qtyOut);
                             $badgeClass = match($row->type ?? '') {
                                 'Purchase'        => 'bg-success',
@@ -103,23 +107,35 @@
                             <td>{{ $row->date }}</td>
                             <td><span class="badge {{ $badgeClass }}">{{ $row->type }}</span></td>
                             <td>{{ $row->description }}</td>
-                            <td class="text-end text-success">{{ $qtyIn  > 0 ? number_format($qtyIn,  2) : '—' }}</td>
-                            <td class="text-end text-danger">{{ $qtyOut > 0 ? number_format($qtyOut, 2) : '—' }}</td>
+                            <td class="text-end text-success">
+                                {{ $qtyIn  > 0 ? number_format($qtyIn,  2) : '—' }}
+                            </td>
+                            <td class="text-end text-danger">
+                                {{ $qtyOut > 0 ? number_format($qtyOut, 2) : '—' }}
+                            </td>
                             <td class="text-end fw-bold">{{ number_format($runningBal, 2) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="text-center text-muted">No transactions in this period.</td></tr>
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">
+                                No transactions in this period.
+                            </td>
+                        </tr>
                     @endforelse
                     @if($itemLedger->count() > 0)
                     <tr class="table-secondary fw-bold">
                         <td colspan="3" class="text-end">Closing Balance</td>
-                        <td class="text-end">{{ number_format($totalIn, 2) }}</td>
+                        <td class="text-end">{{ number_format($totalIn,  2) }}</td>
                         <td class="text-end">{{ number_format($totalOut, 2) }}</td>
-                        <td class="text-end">{{ number_format($closing, 2) }}</td>
+                        <td class="text-end">{{ number_format($closing,  2) }}</td>
                     </tr>
                     @endif
                 @else
-                    <tr><td colspan="6" class="text-center text-muted py-3">Please select a product to generate the ledger.</td></tr>
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-3">
+                            Please select a product to generate the ledger.
+                        </td>
+                    </tr>
                 @endif
                 </tbody>
             </table>
@@ -127,7 +143,7 @@
 
         {{-- ================= STOCK IN HAND ================= --}}
         <div id="SR" class="tab-pane fade {{ $tab=='SR'?'show active':'' }}">
-            <form method="GET" class="mb-3 no-print">
+            <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3 no-print">
                 <input type="hidden" name="tab" value="SR">
                 <div class="row">
                     <div class="col-md-3">
@@ -142,13 +158,31 @@
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
+                        <label>As Of Date</label>
+                        <input type="date" name="to_date" value="{{ $to }}" class="form-control">
+                    </div>
+
+                    {{-- Costing method: superadmin only --}}
+                    @if(auth()->user()->hasRole('superadmin'))
+                    <div class="col-md-2">
                         <label>Costing Method</label>
                         <select name="costing_method" class="form-control">
-                            <option value="avg"    {{ request('costing_method','avg')=='avg'    ? 'selected':'' }}>Average</option>
-                            <option value="latest" {{ request('costing_method','avg')=='latest' ? 'selected':'' }}>Latest</option>
+                            <option value="avg"
+                                {{ request('costing_method','avg')=='avg'    ? 'selected':'' }}>
+                                Average
+                            </option>
+                            <option value="latest"
+                                {{ request('costing_method','avg')=='latest' ? 'selected':'' }}>
+                                Latest
+                            </option>
                         </select>
                     </div>
+                    @else
+                        {{-- Always force avg for non-superadmin --}}
+                        <input type="hidden" name="costing_method" value="avg">
+                    @endif
+
                     <div class="col-md-2 d-flex align-items-end">
                         <button class="btn btn-primary w-100">Filter</button>
                     </div>
@@ -160,9 +194,12 @@
                 $grandTotal = $stockInHand->sum('total');
             @endphp
 
+            {{-- Stock value summary: superadmin only --}}
             @if(auth()->user()->hasRole('superadmin'))
             <div class="mb-3 text-end">
-                <h4>Total Stock Value: <strong>PKR {{ number_format($grandTotal, 2) }}</strong></h4>
+                <h4>Total Stock Value:
+                    <strong class="text-primary">PKR {{ number_format($grandTotal, 2) }}</strong>
+                </h4>
             </div>
             @endif
 
@@ -174,7 +211,7 @@
                         <th class="text-end">Quantity</th>
                         @if(auth()->user()->hasRole('superadmin'))
                             <th class="text-end">Purchase Rate</th>
-                            <th class="text-end">Bilty/Unit</th>
+                            <th class="text-end">Bilty / Unit</th>
                             <th class="text-end">Total Rate</th>
                             <th class="text-end">Stock Value</th>
                         @endif
@@ -187,21 +224,30 @@
                             <td>{{ $row['product'] }}</td>
                             <td class="text-end">{{ number_format($row['quantity'], 2) }}</td>
                             @if(auth()->user()->hasRole('superadmin'))
-                                <td class="text-end">{{ number_format($row['purchase_price'], 2) }}</td>
+                                <td class="text-end">
+                                    {{ number_format($row['purchase_price'], 2) }}
+                                </td>
                                 <td class="text-end">
                                     @if($row['bilty_price'] > 0)
-                                        <span class="text-success">+ {{ number_format($row['bilty_price'], 2) }}</span>
+                                        <span class="text-success">
+                                            + {{ number_format($row['bilty_price'], 2) }}
+                                        </span>
                                     @else
                                         <span class="text-muted">—</span>
                                     @endif
                                 </td>
-                                <td class="text-end"><strong>{{ number_format($row['price'], 2) }}</strong></td>
-                                <td class="text-end">{{ number_format($row['total'], 2) }}</td>
+                                <td class="text-end">
+                                    <strong>{{ number_format($row['price'], 2) }}</strong>
+                                </td>
+                                <td class="text-end">
+                                    {{ number_format($row['total'], 2) }}
+                                </td>
                             @endif
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="{{ auth()->user()->hasRole('superadmin') ? 7 : 3 }}" class="text-center text-muted">
+                            <td colspan="{{ auth()->user()->hasRole('superadmin') ? 7 : 3 }}"
+                                class="text-center text-muted">
                                 No stock found.
                             </td>
                         </tr>
@@ -212,9 +258,9 @@
                         <th colspan="2" class="text-end">Grand Total</th>
                         <th class="text-end">{{ number_format($grandQty, 2) }}</th>
                         @if(auth()->user()->hasRole('superadmin'))
-                            <th>—</th>
-                            <th>—</th>
-                            <th>—</th>
+                            <th class="text-end">—</th>
+                            <th class="text-end">—</th>
+                            <th class="text-end">—</th>
                             <th class="text-end">{{ number_format($grandTotal, 2) }}</th>
                         @endif
                     </tr>
